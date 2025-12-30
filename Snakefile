@@ -6,10 +6,7 @@ SRC = "src"
 
 rule all:
     input:
-        f"{PROCESSED}/pheno_clean.parquet",
-        f"{PROCESSED}/env_descriptors.parquet",
-        f"{PROCESSED}/geno_imputed.parquet",
-        f"{PROCESSED}/G_matrix.npz"
+        "submission_output"
 
 rule preprocess:
     input:
@@ -25,4 +22,15 @@ rule preprocess:
         """
         python {SRC}/preprocess_data.py
         """
+rule modeling:
+    input:
+        "data/processed/pheno_clean.parquet",
+        "data/processed/env_descriptors.parquet",
+        "data/processed/geno_imputed.parquet",
+        "data/processed/G_matrix.npz",
+        "config.yaml"
+    output:
+        directory("submission_output")
+    shell:
+        "python src/main.py"
 
