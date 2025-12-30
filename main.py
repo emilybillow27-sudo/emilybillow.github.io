@@ -1,3 +1,56 @@
+"""
+main.py
+
+Master orchestrator for the T3/Wheat Predictathon pipeline.
+Runs preprocessing, modeling, CV construction, and submission generation.
+
+Author: Emily Billow
+"""
+
+import os
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(ROOT, "src")
+
+def run_preprocessing():
+    print("\n=== STEP 1: Preprocessing Data ===")
+    script = os.path.join(SRC, "preprocess_data.py")
+    subprocess.run([sys.executable, script], check=True)
+    print("✓ Preprocessing complete.\n")
+
+
+def run_modeling():
+    print("=== STEP 2: Modeling (placeholder) ===")
+    # Example:
+    # subprocess.run([sys.executable, os.path.join(SRC, "models.py")], check=True)
+    print("Modeling step not yet implemented.\n")
+
+
+def run_cv_and_submission():
+    print("=== STEP 3: CV0/CV00 + Submission (placeholder) ===")
+    # Example:
+    # subprocess.run([sys.executable, os.path.join(SRC, "submission.py")], check=True)
+    print("Submission generation not yet implemented.\n")
+
+
+def main():
+    print("==========================================")
+    print("   T3/Wheat Predictathon Pipeline Runner   ")
+    print("==========================================\n")
+
+    run_preprocessing()
+    run_modeling()
+    run_cv_and_submission()
+
+    print("Pipeline completed successfully.")
+
+
+if __name__ == "__main__":
+    main()
+
+__________________________________________________________
 # src/main.py
 
 import pandas as pd
