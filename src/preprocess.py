@@ -58,6 +58,9 @@ TRAIT_ABBREV_MAP = {
     "Stripe rust severity - %": "YR SEV %",
     "Winter kill damage - %": "WNTDM %",
     "Winter survival - %": "WNTSUR %",
+    "Yield - kg/ha": "YLD kg/ha", 
+    "Grain yield - kg/ha": "YLD kg/ha", 
+    "Grain yield - g/plot": "WGT g"
 }
 
 YIELD_TRAIT_ABBREVS = {"YLD kg/ha", "WGT g"}
