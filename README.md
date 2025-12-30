@@ -10,17 +10,17 @@ The goal is to predict grain yield for wheat accessions across nine focal trials
 
 The pipeline:
 
-Retrieves and preprocesses phenotypic and genotypic data
+- Retrieves and preprocesses phenotypic and genotypic data
 
-Harmonizes germplasm identifiers
+- Harmonizes germplasm identifiers
 
-Constructs genomic relationship matrices (GRMs)
+- Constructs genomic relationship matrices (GRMs)
 
-Fits multi-environment genomic prediction models
+- Fits multi-environment genomic prediction models
 
-Generates predictions for all genotyped accessions in each focal trial
+- Generates predictions for all genotyped accessions in each focal trial
 
-Produces the required submission folder structure and CSV files
+- Produces the required submission folder structure and CSV files
 
 Repository Structure
 Code
