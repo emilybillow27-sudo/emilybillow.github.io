@@ -60,7 +60,7 @@ TRAIT_ABBREV_MAP = {
     "Winter survival - %": "WNTSUR %",
 }
 
-YIELD_TRAIT_ABBREVS = {"YLD kg/ha", "WGT g"}  # You can expand this if needed
+YIELD_TRAIT_ABBREVS = {"YLD kg/ha", "WGT g"}
 
 
 # ---------------------------------------------------------------------
@@ -70,25 +70,32 @@ YIELD_TRAIT_ABBREVS = {"YLD kg/ha", "WGT g"}  # You can expand this if needed
 def clean_phenotypes(pheno: pd.DataFrame) -> pd.DataFrame:
     """
     Standardize trait names, apply abbreviations, filter to yield traits,
-    and create env_id.
+    and create env_id. If phenotype observations are missing (metadata-only),
+    return an empty standardized DataFrame.
     """
     pheno = pheno.copy()
 
-    # Map full T3 trait names → abbreviations
-    pheno["trait_abbrev"] = pheno["trait_name"].map(TRAIT_ABBREV_MAP).fillna(pheno["trait_name"])
+    required_cols = ["germplasmName", "trait_name", "value"]
 
-    # Filter to yield traits
+    if not all(col in pheno.columns for col in required_cols):
+        print("⚠ No phenotype observations found — skipping phenotype cleaning.")
+        return pd.DataFrame(
+            columns=["germplasmName", "trait_abbrev", "value", "env_id"]
+        )
+
+    pheno["trait_abbrev"] = (
+        pheno["trait_name"]
+        .map(TRAIT_ABBREV_MAP)
+        .fillna(pheno["trait_name"])
+    )
+
     pheno = pheno[pheno["trait_abbrev"].isin(YIELD_TRAIT_ABBREVS)]
 
-    # Build environment identifier
     pheno["env_id"] = (
         pheno["location"].astype(str).str.strip() + "_" +
         pheno["year"].astype(str) + "_" +
         pheno["studyName"].astype(str).str.strip()
     )
-
-    # Basic cleaning
-    pheno = pheno.dropna(subset=["value"])  # remove missing observations
 
     return pheno
 
@@ -100,9 +107,25 @@ def clean_phenotypes(pheno: pd.DataFrame) -> pd.DataFrame:
 def build_env_descriptors(trial_meta: pd.DataFrame) -> pd.DataFrame:
     """
     Build environment-level covariates using T3 trial metadata schema.
+    If metadata is incomplete (Predictathon pre-release), return an empty
+    standardized DataFrame.
     """
     env = trial_meta.copy()
 
+    # Required columns for full processing
+    required_cols = ["trial_name", "location", "year"]
+
+    if not all(col in env.columns for col in required_cols):
+        print("⚠ Trial metadata incomplete — skipping environment descriptor construction.")
+        return pd.DataFrame(
+            columns=[
+                "env_id", "studyName", "location", "year",
+                "planting_date", "harvest_date",
+                "plot_area", "design_type"
+            ]
+        )
+
+    # Normal full processing path
     env["studyName"] = env["trial_name"].astype(str).str.strip()
     env["env_id"] = (
         env["location"].astype(str).str.strip() + "_" +
@@ -115,7 +138,7 @@ def build_env_descriptors(trial_meta: pd.DataFrame) -> pd.DataFrame:
         if col in env.columns:
             env[col] = pd.to_datetime(env[col], errors="coerce")
 
-    # Compute plot area if available
+    # Compute plot area
     if {"plot_width", "plot_length"}.issubset(env.columns):
         env["plot_area"] = (
             pd.to_numeric(env["plot_width"], errors="coerce") *
@@ -130,36 +153,41 @@ def build_env_descriptors(trial_meta: pd.DataFrame) -> pd.DataFrame:
 
     return env[[c for c in keep_cols if c in env.columns]]
 
-
 # ---------------------------------------------------------------------
-# 4. Genotype Imputation (Simple Placeholder)
+# 4. Genotype Imputation
 # ---------------------------------------------------------------------
 
 def impute_genotypes(geno: pd.DataFrame) -> pd.DataFrame:
-    """
-    Simple mean imputation for missing genotype calls.
-    Replace with Beagle, AlphaImpute, or your preferred method.
-    """
     geno = geno.copy()
-    marker_cols = geno.columns[1:]  # assume first column is accession ID
+    marker_cols = geno.columns[1:]
     geno[marker_cols] = geno[marker_cols].apply(lambda col: col.fillna(col.mean()))
     return geno
 
 
 # ---------------------------------------------------------------------
-# 5. Build Genomic Relationship Matrix (GRM)
+# 5. Build GRM
 # ---------------------------------------------------------------------
 
 def build_grm(geno: pd.DataFrame) -> np.ndarray:
     """
-    Build a simple centered GRM: G = ZZ' / p
-    where Z is centered genotype matrix.
+    Build a simple centered GRM: G = ZZ' / p.
+    If genotype markers are missing (metadata-only), return an empty GRM.
     """
+    # No marker columns?
+    if geno.shape[1] <= 1:
+        print("⚠ No genotype markers found — skipping GRM construction.")
+        return np.array([[]])  # empty matrix
+
     marker_matrix = geno.iloc[:, 1:].values  # numeric genotype matrix
+
+    # If marker matrix is empty
+    if marker_matrix.size == 0 or marker_matrix.shape[1] == 0:
+        print("⚠ Genotype matrix has no markers — skipping GRM construction.")
+        return np.array([[]])
+
     Z = marker_matrix - marker_matrix.mean(axis=0)
     G = (Z @ Z.T) / Z.shape[1]
     return G
-
 
 # ---------------------------------------------------------------------
 # 6. Main Script
@@ -179,18 +207,18 @@ def main():
 
     print("Cleaning phenotypes...")
     pheno_clean = clean_phenotypes(pheno)
-    pheno_clean.to_parquet(os.path.join(OUT, "pheno_clean.parquet"))
-    print("✓ pheno_clean.parquet written")
+    pheno_clean.to_csv(os.path.join(OUT, "pheno_clean.csv"), index=False)
+    print("✓ pheno_clean.csv written")
 
     print("Building environment descriptors...")
     env = build_env_descriptors(trial_meta)
-    env.to_parquet(os.path.join(OUT, "env_descriptors.parquet"))
-    print("✓ env_descriptors.parquet written")
+    env.to_csv(os.path.join(OUT, "env_descriptors.csv"), index=False)
+    print("✓ env_descriptors.csv written")
 
     print("Imputing genotypes...")
     geno_imp = impute_genotypes(geno)
-    geno_imp.to_parquet(os.path.join(OUT, "geno_imputed.parquet"))
-    print("✓ geno_imputed.parquet written")
+    geno_imp.to_csv(os.path.join(OUT, "geno_imputed.csv"), index=False)
+    print("✓ geno_imputed.csv written")
 
     print("Building GRM...")
     G = build_grm(geno_imp)
@@ -202,26 +230,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-__________________________________________________________
-
-# src/preprocess.py
-
-import pandas as pd
-
-def clean_phenotypes(pheno: pd.DataFrame) -> pd.DataFrame:
-    """Standardize trait names, remove outliers, create env_id."""
-    pheno = pheno.copy()
-    # TODO: unify trait names, filter yield traits
-    # TODO: create env_id = location_year_study
-    return pheno
-
-def harmonize_germplasm_ids(pheno, geno):
-    """Ensure germplasmName matches across phenotype and genotype tables."""
-    # TODO: strip whitespace, uppercase, unify naming
-    return pheno, geno
-
-def impute_genotypes(geno: pd.DataFrame) -> pd.DataFrame:
-    """Simple mean imputation or call external imputation."""
-    # TODO: implement
-    return geno
