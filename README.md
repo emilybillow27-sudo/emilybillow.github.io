@@ -177,3 +177,61 @@ Documentation:
 
 License
 Specify your license here (MIT, Apache 2.0, etc.).
+
+Quick Start
+This section provides a minimal, copy‑paste‑ready workflow for running the entire genomic prediction pipeline — from raw data to final submission files — using either Snakemake or the provided shell wrapper.
+
+Option 1: Run the Entire Pipeline with Snakemake
+Snakemake handles preprocessing, modeling, and submission generation automatically.
+
+Run everything
+bash
+snakemake -p -j1
+Run only preprocessing
+bash
+snakemake preprocess -p -j1
+Run only modeling + submission generation
+bash
+snakemake modeling -p -j1
+Force a clean rebuild
+bash
+snakemake -p -j1 --forcerun preprocess modeling
+Increase wait time for networked filesystems (optional)
+bash
+snakemake -p -j1 --latency-wait 30
+Option 2: Use the run_pipeline.sh Wrapper Script
+A convenient wrapper is included to clean, preprocess, model, and generate submission files in one command.
+
+Run full pipeline
+bash
+bash run_pipeline.sh
+Clean + run full pipeline
+This removes all processed data, submission outputs, and Snakemake metadata before rebuilding.
+
+bash
+bash run_pipeline.sh --clean
+What the script does
+Optional cleaning (--clean)
+
+Runs Snakemake preprocessing
+
+Runs Snakemake modeling
+
+Produces the full submission folder structure
+
+Expected Output Structure
+After running either method, you will see:
+
+Code
+submission_output/
+├── AWY1_DVPWA_2024/
+│   ├── CV0/
+│   │   ├── CV0accessions.csv
+│   │   ├── CV0trials.csv
+│   │   └── CV0predictions.csv
+│   └── CV00/
+│       ├── CV00accessions.csv
+│       ├── CV00trials.csv
+│       └── CV00predictions.csv
+├── TCAP_2025_MANKS/
+└── ...
