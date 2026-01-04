@@ -119,20 +119,6 @@ submission_output/
     │   └── CV00_Accessions.csv
     ├── TCAP_2025_MANKS/
     └── ...
-All files follow the exact formatting required by the competition.
-
-submission_output/
-├── AWY1_DVPWA_2024/
-│   ├── CV0/
-│   │   ├── CV0accessions.csv
-│   │   ├── CV0trials.csv
-│   │   └── CV0predictions.csv
-│   └── CV00/
-│       ├── CV00accessions.csv
-│       ├── CV00trials.csv
-│       └── CV00predictions.csv
-├── TCAP_2025_MANKS/
-└── ...
 
 Focal Trials
 The nine focal trials used in the challenge are:
