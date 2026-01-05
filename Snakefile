@@ -1,8 +1,7 @@
-# Snakefile for T3/Wheat Predictathon Pipeline
-
-RAW = "data/raw"
-PROCESSED = "data/processed"
-SRC = "src"
+###############################################
+# T3/Wheat Predictathon – Snakemake Pipeline
+# Option C: BrAPI for metadata, local genotypes
+###############################################
 
 FOCAL_TRIALS = [
     "AWY1_DVPWA_2024",
@@ -17,59 +16,76 @@ FOCAL_TRIALS = [
 ]
 
 CV_TYPES = ["CV0", "CV00"]
+FILETYPES = ["accessions", "trials", "predictions"]
 
 
-# ---------------------------------------------------------------------
-# Final target: require all submission files to exist
-# ---------------------------------------------------------------------
+###############################################
+# Rule: all
+###############################################
 rule all:
     input:
         expand(
             "submission_output/{trial}/{cv}/{cv}{filetype}.csv",
             trial=FOCAL_TRIALS,
             cv=CV_TYPES,
-            filetype=["accessions", "trials", "predictions"]
+            filetype=FILETYPES
         )
 
 
-# ---------------------------------------------------------------------
-# Preprocessing
-# ---------------------------------------------------------------------
-rule preprocess:
+###############################################
+# Rule: fetch genotypes (local file, Option C)
+###############################################
+rule fetch_genotypes_local:
+    """
+    Load the local Predictathon genotype matrix and normalize accession names.
+    """
     input:
-        phenotypes=f"{RAW}/phenotypes.csv",
-        trial_meta=f"{RAW}/trial_metadata.csv",
-        genotypes=f"{RAW}/genotypes.csv"
+        "data/raw/genotypes.csv"
     output:
-        pheno_clean=f"{PROCESSED}/pheno_clean.csv",
-        env_desc=f"{PROCESSED}/env_descriptors.csv",
-        geno_imp=f"{PROCESSED}/geno_imputed.csv",
-        grm=f"{PROCESSED}/G_matrix.npz"
+        "data/raw/genotypes_from_local.csv"
     shell:
-        """
-        python {SRC}/preprocess_data.py
-        """
+        "python src/fetch_t3_genotypes.py"
 
 
-# ---------------------------------------------------------------------
-# Modeling
-# ---------------------------------------------------------------------
-rule modeling:
+###############################################
+# Rule: preprocess
+###############################################
+rule preprocess:
+    """
+    Merge phenotypes, metadata, and local genotype matrix.
+    """
     input:
-        pheno=f"{PROCESSED}/pheno_clean.csv",
-        env=f"{PROCESSED}/env_descriptors.csv",
-        geno=f"{PROCESSED}/geno_imputed.csv",
-        grm=f"{PROCESSED}/G_matrix.npz",
-        config="config.yaml"
+        "data/raw/phenotypes.csv",
+        "data/raw/trial_metadata.csv",
+        "data/raw/genotypes_from_local.csv"
+    output:
+        "data/processed/pheno_clean.csv",
+        "data/processed/env_descriptors.csv",
+        "data/processed/geno_imputed.csv",
+        "data/processed/G_matrix.npz"
+    shell:
+        "python src/preprocess_data.py"
+
+
+###############################################
+# Rule: modeling
+###############################################
+rule modeling:
+    """
+    Train models and generate Predictathon submission files.
+    """
+    input:
+        "data/processed/pheno_clean.csv",
+        "data/processed/env_descriptors.csv",
+        "data/processed/geno_imputed.csv",
+        "data/processed/G_matrix.npz",
+        "config.yaml"
     output:
         expand(
             "submission_output/{trial}/{cv}/{cv}{filetype}.csv",
             trial=FOCAL_TRIALS,
-            cv=["CV0", "CV00"],
-            filetype=["accessions", "trials", "predictions"]
+            cv=CV_TYPES,
+            filetype=FILETYPES
         )
     shell:
-        """
-        python {SRC}/main.py
-        """
-# ---------------------------------------------------------------------
+        "python src/main.py"

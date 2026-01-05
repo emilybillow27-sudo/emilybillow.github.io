@@ -23,6 +23,15 @@ import os
 import pandas as pd
 import numpy as np
 
+# Prefer BrAPI-fetched genotypes if available
+if os.path.exists("data/raw/genotypes_from_t3.csv"):
+    geno_path = "data/raw/genotypes_from_t3.csv"
+else:
+    geno_path = "data/raw/genotypes.csv"
+
+geno = pd.read_csv(geno_path)
+
+
 # ---------------------------------------------------------------------
 # 1. Trait Abbreviation Map (from T3 Wheat Newsletter)
 # ---------------------------------------------------------------------
