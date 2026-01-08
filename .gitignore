@@ -1,14 +1,22 @@
-# Block all raw and processed data
+# Ignore all raw and processed data
 data/raw/
 data/processed/
 
-# Allow small metadata files
-!data/raw/*.txt
-!data/processed/*.txt
-!data/processed/*.md
-
-# Block all CSVs by default
+# Ignore all CSVs by default
 *.csv
 
-# Allow tiny CSVs if needed
-!data/processed/*small*.csv
+# Allow small metadata files
+!data/*.md
+!data/*.txt
+
+# Ignore large binary files
+*.npz
+*.npy
+*.vcf
+*.tsv
+*.gz
+*.zip
+
+# Ignore Python cache
+__pycache__/
+*.pyc
