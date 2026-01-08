@@ -1,0 +1,14 @@
+# Block all raw and processed data
+data/raw/
+data/processed/
+
+# Allow small metadata files
+!data/raw/*.txt
+!data/processed/*.txt
+!data/processed/*.md
+
+# Block all CSVs by default
+*.csv
+
+# Allow tiny CSVs if needed
+!data/processed/*small*.csv
