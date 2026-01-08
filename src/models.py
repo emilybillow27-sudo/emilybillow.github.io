@@ -1,218 +1,145 @@
-# src/models.py
-
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import KFold
 
 
-# ----------------------------------------------------------------------
-# MODEL DISPATCHER
-# ----------------------------------------------------------------------
+# ------------------------------------------------------------
+# 1. Fit GBLUP model using VanRaden GRM
+# ------------------------------------------------------------
 
-def fit_model(train_pheno, geno, env, G, model_type="gblup"):
+def fit_model(train_pheno, geno, env, G, model_type="me_gblup"):
     """
-    Dispatch to the requested model type.
+    Fit a GBLUP model using the GRM and phenotype vector.
+    Uses the correct mixed model equation:
+        u = G (G + λI)^(-1) y
     """
-    if model_type == "me_gblup":
-        return fit_me_gblup(train_pheno, geno, env, G)
-    elif model_type == "gblup":
-        return fit_gblup(train_pheno, geno, env, G)
-    else:
-        raise ValueError(f"Unknown model_type: {model_type}")
 
-
-def predict_for_trial(model, focal_trial, test_accessions, geno, env, G, model_type="gblup"):
-    """
-    Dispatch prediction to the correct model.
-    """
-    if model_type == "me_gblup":
-        return predict_me_gblup(model, focal_trial, test_accessions, geno, env, G)
-    elif model_type == "gblup":
-        return predict_gblup(model, focal_trial, test_accessions, geno, env, G)
-    else:
-        raise ValueError(f"Unknown model_type: {model_type}")
-        
-
-# ----------------------------------------------------------------------
-# BASELINE GBLUP
-# ----------------------------------------------------------------------
-
-def fit_gblup(train_pheno, geno, env, G, lambda_factor=1e-5):
-    """
-    Baseline GBLUP:
-        u_hat = (G + λI)^(-1) y
-    """
-    from numpy.linalg import inv
-
-    y = train_pheno["value"].values
-    accessions = train_pheno["germplasmName"].values
-
-    # Map accessions to rows of G
-    geno_ids = geno["germplasmName"].values
-    train_idx = [np.where(geno_ids == acc)[0][0] for acc in accessions]
-
-    # Subset G
-    G_train = G[np.ix_(train_idx, train_idx)]
-
-    # Regularize
-    G_reg = G_train + lambda_factor * np.eye(len(train_idx))
-
-    # Solve
-    u_hat = inv(G_reg) @ y
-
-    return {
-        "accessions": accessions,
-        "u_hat": u_hat,
-        "geno_ids": geno_ids,
-    }
-
-
-def predict_gblup(model, focal_trial, test_accessions, geno, env, G):
-    """
-    Predict breeding values for test accessions using GBLUP.
-    """
-    geno_ids = model["geno_ids"]
-
-    # Training indices
-    train_idx = [np.where(geno_ids == acc)[0][0] for acc in model["accessions"]]
-
-    # Test indices (only those present in geno_ids)
-    test_idx = [
-        np.where(geno_ids == acc)[0][0]
-        for acc in test_accessions
-        if acc in geno_ids
+    # Identify phenotype column
+    pheno_cols = [
+        c for c in train_pheno.columns
+        if c not in ["germplasmName", "studyName", "traitName"]
     ]
+    if len(pheno_cols) != 1:
+        raise ValueError(f"Could not identify phenotype column. Found: {pheno_cols}")
+    pheno_col = pheno_cols[0]
 
-    # Subset G
-    G_test_train = G[np.ix_(test_idx, train_idx)]
+    # Genotyped lines
+    geno_lines = geno["germplasmName"].tolist()
 
-    # Predict
-    y_hat = G_test_train @ model["u_hat"]
+    # Training lines that have genotypes
+    train_lines = [l for l in train_pheno["germplasmName"].unique() if l in geno_lines]
 
-    return pd.DataFrame({
-        "germplasmName": [geno_ids[i] for i in test_idx],
-        "value": y_hat,
-        "studyName": focal_trial,
-    })
-
-
-# ----------------------------------------------------------------------
-# MULTI‑ENVIRONMENT GBLUP (ME‑GBLUP)
-# ----------------------------------------------------------------------
-
-def fit_me_gblup(train_pheno, geno, env, G, h2=0.3):
-    """
-    Multi‑environment GBLUP:
-        y = Xb + Zu
-        u ~ N(0, G σ_g^2)
-    Environments/trials enter as fixed effects.
-    """
-
-    # -----------------------------
-    # Align phenotypes
-    # -----------------------------
-    y = train_pheno["value"].values
-    accessions = train_pheno["germplasmName"].values
-    trials = train_pheno["studyName"].astype("category")
-
-    # Build accession index
-    geno_ids = geno["germplasmName"].values
-    train_idx = [np.where(geno_ids == acc)[0][0] for acc in accessions]
-
-    # Subset G
-    G_train = G[np.ix_(train_idx, train_idx)]
-
-    # -----------------------------
-    # Fixed effects: intercept + trial dummies
-    # -----------------------------
-    trial_design = pd.get_dummies(trials, drop_first=True)
-    X = np.column_stack([
-        np.ones(len(train_pheno)),
-        trial_design.values,
+    # Build phenotype vector aligned to GRM
+    y = np.array([
+        train_pheno.loc[train_pheno["germplasmName"] == l, pheno_col].mean()
+        for l in train_lines
     ])
 
-    # -----------------------------
-    # Estimate fixed effects (OLS approximation)
-    # -----------------------------
-    XtX = X.T @ X
-    Xty = X.T @ y
-    beta_hat = np.linalg.solve(XtX + 1e-6 * np.eye(XtX.shape[0]), Xty)
+    # Center phenotype (important for stability)
+    y = y - y.mean()
 
-    # Residuals
-    y_tilde = y - X @ beta_hat
+    # Subset GRM to training lines
+    idx = [geno_lines.index(l) for l in train_lines]
+    G_sub = G[np.ix_(idx, idx)]
 
-    # -----------------------------
-    # Solve for u_hat
-    # -----------------------------
-    lam = (1 - h2) / h2
-    A = G_train + lam * np.eye(G_train.shape[0])
-    alpha = np.linalg.solve(A, y_tilde)
-    u_hat = G_train @ alpha
+    # Add ridge penalty (λ)
+    lambda_ = 1e-3
+    A = G_sub + lambda_ * np.eye(len(G_sub))
+
+    # Solve for breeding values
+    u = np.linalg.solve(A, y)
 
     return {
-        "beta_hat": beta_hat,
-        "u_hat": u_hat,
-        "uniq_acc": accessions,
-        "geno_ids": geno_ids,
-        "trial_levels": trial_design.columns.tolist(),
-        "h2": h2,
+        "train_lines": train_lines,
+        "u": u,
+        "geno_lines": geno_lines,
+        "G_full": G,
     }
 
 
-def predict_me_gblup(model, focal_trial, test_accessions, geno, env, G):
+# ------------------------------------------------------------
+# 2. Predict for a trial
+# ------------------------------------------------------------
+
+def predict_for_trial(model, focal_trial, test_accessions, geno, env, G, model_type="me_gblup"):
     """
-    Predict phenotypes for test accessions in a focal trial using ME‑GBLUP.
+    Predict breeding values for a list of accessions using:
+        pred_i = g_i,train @ u
     """
 
-    beta_hat = model["beta_hat"]
-    u_hat = model["u_hat"]
-    uniq_acc = model["uniq_acc"]
-    geno_ids = model["geno_ids"]
-    trial_levels = model["trial_levels"]
+    train_lines = model["train_lines"]
+    u = model["u"]
+    geno_lines = model["geno_lines"]
+    G_full = model["G_full"]
 
-    # -----------------------------
-    # Map test accessions
-    # -----------------------------
-    test_idx = []
+    preds = []
     for acc in test_accessions:
-        if acc in uniq_acc:
-            # Seen in training
-            i = np.where(uniq_acc == acc)[0][0]
-            test_idx.append(("seen", i))
-        else:
-            # Unseen: breeding value = 0
-            test_idx.append(("new", None))
+        if acc not in geno_lines:
+            preds.append(np.nan)
+            continue
 
-    # -----------------------------
-    # Build u_test
-    # -----------------------------
-    u_test = []
-    for status, idx in test_idx:
-        if status == "seen":
-            u_test.append(u_hat[idx])
-        else:
-            u_test.append(0.0)
-    u_test = np.array(u_test)
+        i = geno_lines.index(acc)
+        g_vec = G_full[i, [geno_lines.index(l) for l in train_lines]]
 
-    # -----------------------------
-    # Build fixed‑effect design for focal trial
-    # -----------------------------
-    trial_row = [0.0] * len(trial_levels)
-    if focal_trial in trial_levels:
-        j = trial_levels.index(focal_trial)
-        trial_row[j] = 1.0
-
-    X_star = np.column_stack([
-        np.ones(len(test_accessions)),
-        np.tile(trial_row, (len(test_accessions), 1)),
-    ])
-
-    # -----------------------------
-    # Final prediction
-    # -----------------------------
-    y_pred = X_star @ beta_hat + u_test
+        pred = g_vec @ u
+        preds.append(pred)
 
     return pd.DataFrame({
         "germplasmName": test_accessions,
-        "value": y_pred,
-        "studyName": focal_trial,
+        "pred": preds
     })
+
+
+# ------------------------------------------------------------
+# 3. CV1 cross-validation
+# ------------------------------------------------------------
+
+def cross_validate_model(train_pheno, geno, env, G, model_type="me_gblup", n_folds=5):
+    """
+    Perform CV1 (leave-lines-out) cross-validation.
+    Returns:
+        germplasmName | value | pred | fold
+    """
+
+    # Identify phenotype column
+    pheno_cols = [
+        c for c in train_pheno.columns
+        if c not in ["germplasmName", "studyName", "traitName"]
+    ]
+    if len(pheno_cols) != 1:
+        raise ValueError(f"Could not identify phenotype column. Found: {pheno_cols}")
+    pheno_col = pheno_cols[0]
+
+    lines = train_pheno["germplasmName"].unique()
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+
+    results = []
+
+    for fold, (train_idx, test_idx) in enumerate(kf.split(lines), start=1):
+        train_lines = lines[train_idx]
+        test_lines = lines[test_idx]
+
+        pheno_train = train_pheno[train_pheno["germplasmName"].isin(train_lines)]
+        pheno_test = train_pheno[train_pheno["germplasmName"].isin(test_lines)]
+
+        model = fit_model(pheno_train, geno, env, G, model_type)
+
+        preds = predict_for_trial(
+            model=model,
+            focal_trial="CV1",
+            test_accessions=test_lines,
+            geno=geno,
+            env=env,
+            G=G,
+            model_type=model_type,
+        )
+
+        merged = pheno_test[["germplasmName", pheno_col]].merge(
+            preds, on="germplasmName", how="inner"
+        )
+        merged = merged.rename(columns={pheno_col: "value"})
+        merged["fold"] = fold
+
+        results.append(merged)
+
+    return pd.concat(results, ignore_index=True)

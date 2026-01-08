@@ -1,13 +1,13 @@
+#!/usr/bin/env python3
+
 import os
 import pandas as pd
 import numpy as np
 
-from cv_protocols import build_cv_datasets
-from models import fit_model, predict_for_trial
+from models import fit_model, predict_for_trial, cross_validate_model
 from submission import write_submission_files
 
-
-# Trials required for Predictathon submission structure
+# Challenge trials for Predictathon
 FOCAL_TRIALS = [
     "AWY1_DVPWA_2024",
     "TCAP_2025_MANKS",
@@ -24,115 +24,107 @@ FOCAL_TRIALS = [
 def main():
 
     # --------------------------------------------------------------
-    # Load processed data
+    # Resolve repo root so all paths are stable
     # --------------------------------------------------------------
-    pheno = pd.read_csv("data/processed/pheno_clean.csv")
-    geno = pd.read_csv("data/processed/geno_imputed.csv")
-    env = pd.read_csv("data/processed/env_descriptors.csv")
-    G = np.load("data/processed/G_matrix.npz")["G"]
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    data_dir = os.path.join(ROOT, "data", "processed")
+    output_root = os.path.join(ROOT, "submission_output")
+
+    # Your cleaned + overlap phenotype file
+    pheno_path = os.path.join(data_dir, "train_pheno_overlap.csv")
+    geno_path = os.path.join(data_dir, "geno_imputed.csv")
+    env_path = os.path.join(data_dir, "env_descriptors.csv")
+    G_path = os.path.join(data_dir, "G_matrix.npz")
+
+    # --------------------------------------------------------------
+    # Step 1: Load processed data
+    # --------------------------------------------------------------
+    print("\n=== Loading processed data ===")
+
+    pheno = pd.read_csv(pheno_path)
+    geno = pd.read_csv(geno_path)
+    env = pd.read_csv(env_path)
+    G = np.load(G_path)["G"]
+
+    print(f"✓ Training phenotype rows: {len(pheno)}")
+    print(f"✓ Genotype matrix shape: {geno.shape}")
+    print(f"✓ GRM shape: {G.shape}")
 
     MODEL_TYPE = "me_gblup"
 
     # --------------------------------------------------------------
-    # Always create full folder structure
+    # Step 2: Ensure submission folder structure exists
     # --------------------------------------------------------------
+    print("\n=== Ensuring submission folder structure ===")
+
     for trial in FOCAL_TRIALS:
         for cv_type in ["CV0", "CV00"]:
-            os.makedirs(f"submission_output/{trial}/{cv_type}", exist_ok=True)
+            os.makedirs(os.path.join(output_root, trial, cv_type), exist_ok=True)
 
     # --------------------------------------------------------------
-    # Detect metadata-only mode
+    # Step 3: Run CV1 cross-validation
     # --------------------------------------------------------------
-    metadata_only = (
-        pheno.empty or
-        env.empty or
-        geno.shape[1] <= 1 or
-        G.size == 0
+    print("\n=== Running CV1 cross-validation ===")
+
+    cv_results = cross_validate_model(
+        train_pheno=pheno,
+        geno=geno,
+        env=env,
+        G=G,
+        model_type=MODEL_TYPE,
+        n_folds=5,
     )
 
-    if metadata_only:
-        print("\n⚠ Metadata-only mode detected — writing empty files.\n")
+    corr = cv_results["value"].corr(cv_results["pred"])
+    print(f"CV1 accuracy (Pearson r): {corr:.3f}")
 
-        for trial in FOCAL_TRIALS:
-            for cv_type in ["CV0", "CV00"]:
-                cv_dir = f"submission_output/{trial}/{cv_type}"
-
-                open(f"{cv_dir}/{cv_type}accessions.csv", "w").close()
-                open(f"{cv_dir}/{cv_type}trials.csv", "w").close()
-                open(f"{cv_dir}/{cv_type}predictions.csv", "w").close()
-
-        print("✓ Empty submission structure created.\n")
-        return
+    cv_out = os.path.join(output_root, "cv1_results.csv")
+    cv_results.to_csv(cv_out, index=False)
+    print(f"✓ Saved CV1 results to {cv_out}")
 
     # --------------------------------------------------------------
-    # Full modeling path
+    # Step 4: Fit final model on all training data
     # --------------------------------------------------------------
+    print("\n=== Fitting final model on all training data ===")
+
+    model = fit_model(
+        train_pheno=pheno,
+        geno=geno,
+        env=env,
+        G=G,
+        model_type=MODEL_TYPE,
+    )
+
+    # --------------------------------------------------------------
+    # Step 5: Predict for challenge trials
+    # --------------------------------------------------------------
+    print("\n=== Predicting for challenge trials ===")
+
+    # env has no accession column → predict for all genotyped lines
+    all_genotyped = geno["germplasmName"].unique().tolist()
+
     for trial in FOCAL_TRIALS:
         for cv_type in ["CV0", "CV00"]:
+            print(f"\n--- {trial} / {cv_type} ---")
+            print(f"  Predicting for {len(all_genotyped)} genotyped accessions.")
 
-            cv_dir = f"submission_output/{trial}/{cv_type}"
+            preds_df = predict_for_trial(
+                model=model,
+                focal_trial=trial,
+                test_accessions=all_genotyped,
+                geno=geno,
+                env=env,
+                G=G,
+                model_type=MODEL_TYPE,
+            )
 
-            # Build CV datasets
-            train_pheno, train_trials, train_accessions, test_accessions = \
-                build_cv_datasets(pheno, trial, cv_type)
-
-            # If no training data → write empty files
-            if train_pheno.empty or len(train_trials) == 0 or len(train_accessions) == 0:
-                print(f"\n⚠ No training data for {trial} / {cv_type} — writing empty files.")
-                write_submission_files(
-                    trial_name=trial,
-                    cv_type=cv_type,
-                    preds_df=pd.DataFrame(),
-                    train_trials=[],
-                    train_accessions=[],
-                    output_root="submission_output"
-                )
-                continue
-
-            # Fit model
-            try:
-                model = fit_model(
-                    train_pheno=train_pheno,
-                    geno=geno,
-                    env=env,
-                    G=G,
-                    model_type=MODEL_TYPE,
-                )
-            except Exception as e:
-                print(f"\n⚠ Model failed for {trial} / {cv_type}: {e}")
-                write_submission_files(
-                    trial_name=trial,
-                    cv_type=cv_type,
-                    preds_df=pd.DataFrame(),
-                    train_trials=train_trials,
-                    train_accessions=train_accessions,
-                    output_root="submission_output"
-                )
-                continue
-
-            # Predict
-            try:
-                preds_df = predict_for_trial(
-                    model=model,
-                    focal_trial=trial,
-                    test_accessions=test_accessions,
-                    geno=geno,
-                    env=env,
-                    G=G,
-                    model_type=MODEL_TYPE,
-                )
-            except Exception as e:
-                print(f"\n⚠ Prediction failed for {trial} / {cv_type}: {e}")
-                preds_df = pd.DataFrame()
-
-            # Write files
             write_submission_files(
                 trial_name=trial,
                 cv_type=cv_type,
                 preds_df=preds_df,
-                train_trials=train_trials,
-                train_accessions=train_accessions,
-                output_root="submission_output"
+                train_trials=["historical"],
+                train_accessions=pheno["germplasmName"].unique().tolist(),
+                output_root=output_root,
             )
 
     print("\n✓ Modeling + submission generation complete.\n")
