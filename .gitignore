@@ -20,3 +20,26 @@ data/processed/
 # Ignore Python cache
 __pycache__/
 *.pyc
+
+# macOS junk
+.DS_Store
+
+# Snakemake internals
+.snakemake/
+*.snakemake.log
+
+# Raw data (lives in sibling directory)
+data/raw/
+*/raw/
+
+# Large processed files you don't want tracked
+data/processed/*.npz
+data/processed/*.npy
+data/processed/*.rds
+
+# Submission outputs (optional)
+submission_output/
+
+# Python cache
+__pycache__/
+*.pyc

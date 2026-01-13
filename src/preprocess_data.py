@@ -1,89 +1,61 @@
 #!/usr/bin/env python3
-
+import argparse
 import os
 import pandas as pd
 from tqdm import tqdm
 
 
-# ============================================================
-# Streaming CSV readers
-# ============================================================
-
-def stream_csv_with_progress(path, chunksize=200000, desc="Streaming CSV"):
-    """
-    Stream a CSV file with a byte-accurate progress bar.
-    Uses the file handle to track bytes consumed.
-    """
+############################################################
+# Utility: Stream CSV in chunks with progress bar
+############################################################
+def stream_csv_with_progress(path, chunksize=50000, desc="Streaming CSV"):
     total_bytes = os.path.getsize(path)
-
-    with open(path, "rb") as f, tqdm(
-        total=total_bytes,
-        unit="B",
-        unit_scale=True,
-        desc=desc
-    ) as pbar:
-        reader = pd.read_csv(f, chunksize=chunksize)
-
-        for chunk in reader:
-            # Update progress bar based on file pointer movement
-            pbar.update(f.tell() - pbar.n)
-            yield chunk
+    with open(path, "rb") as f:
+        with tqdm(total=total_bytes, unit="B", unit_scale=True, desc=desc) as pbar:
+            for chunk in pd.read_csv(path, chunksize=chunksize):
+                pbar.update(f.tell() - pbar.n)
+                yield chunk
 
 
-# ============================================================
-# Placeholder transformation functions
-# (Replace with your actual logic)
-# ============================================================
-
+############################################################
+# Placeholder processing functions (your originals stay here)
+############################################################
 def process_raw_chunk(chunk):
-    """
-    Apply your raw phenotype preprocessing here.
-    Example: cleaning, renaming, filtering, type conversion.
-    """
-    # Example placeholder:
-    # chunk = chunk.rename(columns={"old": "new"})
-    return chunk
-
-
-def harmonize_trait_names(chunk, trait_metadata):
-    """
-    Apply trait harmonization using metadata.
-    Replace this with your actual harmonization logic.
-    """
-    # Example placeholder:
-    # chunk["trait"] = chunk["trait"].map(trait_metadata)
+    # Your existing cleaning logic stays here
     return chunk
 
 
 def fetch_trait_metadata():
-    """
-    Fetch trait metadata from BrAPI or local cache.
-    Replace with your actual implementation.
-    """
-    # Placeholder: return empty dict
+    # Your existing metadata logic stays here
     return {}
 
 
-# ============================================================
-# Main pipeline
-# ============================================================
+def harmonize_trait_names(chunk, trait_metadata):
+    # Your existing harmonization logic stays here
+    return chunk
 
+
+############################################################
+# MAIN PIPELINE
+############################################################
 def main():
+    parser = argparse.ArgumentParser(description="Preprocess phenotype + metadata + genotype files")
+    parser.add_argument("--pheno", required=True, help="Path to phenotype CSV")
+    parser.add_argument("--meta", required=True, help="Path to metadata CSV")
+    parser.add_argument("--geno", required=True, help="Path to merged genotype CSV")
+    args = parser.parse_args()
 
-    # *** UPDATED FILE NAME HERE ***
-    raw_path = "data/raw/2026-01-05T190050phenotype_download.csv"
+    # Use the phenotype file provided by Snakemake
+    raw_path = args.pheno
 
+    # Output locations
     processed_path = "data/processed/preprocessed.csv"
     final_path = "data/processed/preprocessed_final.csv"
 
-    # ------------------------------------------------------------
-    # 1. STREAM RAW FILE → PROCESS → WRITE PROCESSED FILE
-    # ------------------------------------------------------------
     print("\n=== PASS 1: Processing raw phenotype CSV ===")
-
     first = True
-    for chunk in stream_csv_with_progress(raw_path, desc="Processing raw CSV"):
 
+    for chunk in stream_csv_with_progress(raw_path, desc="Processing raw CSV"):
         chunk = process_raw_chunk(chunk)
 
         chunk.to_csv(
@@ -96,21 +68,14 @@ def main():
 
     print(f"Finished streaming raw CSV. Output written to {processed_path}")
 
-    # ------------------------------------------------------------
-    # 2. LOAD TRAIT METADATA
-    # ------------------------------------------------------------
     print("\nFetching trait metadata...")
     trait_metadata = fetch_trait_metadata()
     print("Trait metadata loaded.")
 
-    # ------------------------------------------------------------
-    # 3. STREAM PROCESSED FILE → HARMONIZE TRAITS → WRITE FINAL FILE
-    # ------------------------------------------------------------
     print("\n=== PASS 2: Harmonizing processed phenotype CSV ===")
-
     first = True
-    for chunk in stream_csv_with_progress(processed_path, desc="Reloading processed CSV"):
 
+    for chunk in stream_csv_with_progress(processed_path, desc="Reloading processed CSV"):
         chunk = harmonize_trait_names(chunk, trait_metadata)
 
         chunk.to_csv(
@@ -125,9 +90,8 @@ def main():
     print("Pipeline completed successfully.")
 
 
-# ============================================================
+############################################################
 # Entry point
-# ============================================================
-
+############################################################
 if __name__ == "__main__":
     main()

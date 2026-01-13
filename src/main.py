@@ -4,8 +4,14 @@ import os
 import pandas as pd
 import numpy as np
 
-from models import fit_model, predict_for_trial, cross_validate_model
+from models import (
+    fit_model,
+    predict_for_trial,
+    cross_validate_model,
+    build_grm_from_geno,
+)
 from submission import write_submission_files
+
 
 # Challenge trials for Predictathon
 FOCAL_TRIALS = [
@@ -30,11 +36,9 @@ def main():
     data_dir = os.path.join(ROOT, "data", "processed")
     output_root = os.path.join(ROOT, "submission_output")
 
-    # Your cleaned + overlap phenotype file
-    pheno_path = os.path.join(data_dir, "train_pheno_overlap.csv")
-    geno_path = os.path.join(data_dir, "geno_imputed.csv")
-    env_path = os.path.join(data_dir, "env_descriptors.csv")
-    G_path = os.path.join(data_dir, "G_matrix.npz")
+    # New pipeline outputs
+    pheno_path = os.path.join(data_dir, "preprocessed_final.csv")
+    geno_path = os.path.join(data_dir, "geno_merged_raw.csv")
 
     # --------------------------------------------------------------
     # Step 1: Load processed data
@@ -43,17 +47,46 @@ def main():
 
     pheno = pd.read_csv(pheno_path)
     geno = pd.read_csv(geno_path)
-    env = pd.read_csv(env_path)
-    G = np.load(G_path)["G"]
 
-    print(f"✓ Training phenotype rows: {len(pheno)}")
+    print(f"✓ Raw phenotype rows: {len(pheno)}")
     print(f"✓ Genotype matrix shape: {geno.shape}")
+
+    # --------------------------------------------------------------
+    # Step 1b: Convert long-format phenotype → modeling-ready format
+    # --------------------------------------------------------------
+    # Expecting columns: germplasmName, trial, trait_name, value
+    if {"germplasmName", "value"}.issubset(pheno.columns):
+        pheno = (
+            pheno.groupby("germplasmName")["value"]
+            .mean()
+            .reset_index()
+        )
+        print(f"✓ Collapsed phenotype to {len(pheno)} unique lines")
+
+    # --------------------------------------------------------------
+    # Step 1c: Restrict phenotype to lines with genotypes
+    # --------------------------------------------------------------
+    geno_lines = set(geno["germplasmName"].tolist())
+    before = len(pheno)
+    pheno = pheno[pheno["germplasmName"].isin(geno_lines)].reset_index(drop=True)
+    after = len(pheno)
+    dropped = before - after
+    print(f"✓ Filtered phenotype to genotyped lines: kept {after}, dropped {dropped}")
+
+    # --------------------------------------------------------------
+    # Step 2: Build GRM
+    # --------------------------------------------------------------
+    print("\n=== Building genomic relationship matrix (GRM) ===")
+    G, geno_lines_ordered = build_grm_from_geno(geno)
     print(f"✓ GRM shape: {G.shape}")
+
+    # No environment descriptors for now
+    env = None
 
     MODEL_TYPE = "me_gblup"
 
     # --------------------------------------------------------------
-    # Step 2: Ensure submission folder structure exists
+    # Step 3: Ensure submission folder structure exists
     # --------------------------------------------------------------
     print("\n=== Ensuring submission folder structure ===")
 
@@ -62,7 +95,7 @@ def main():
             os.makedirs(os.path.join(output_root, trial, cv_type), exist_ok=True)
 
     # --------------------------------------------------------------
-    # Step 3: Run CV1 cross-validation
+    # Step 4: Run CV1 cross-validation
     # --------------------------------------------------------------
     print("\n=== Running CV1 cross-validation ===")
 
@@ -75,15 +108,18 @@ def main():
         n_folds=5,
     )
 
-    corr = cv_results["value"].corr(cv_results["pred"])
-    print(f"CV1 accuracy (Pearson r): {corr:.3f}")
+    if "value" in cv_results.columns and "pred" in cv_results.columns:
+        corr = cv_results["value"].corr(cv_results["pred"])
+        print(f"CV1 accuracy (Pearson r): {corr:.3f}")
+    else:
+        print("Warning: cv_results missing 'value' or 'pred' columns; skipping accuracy calculation.")
 
     cv_out = os.path.join(output_root, "cv1_results.csv")
     cv_results.to_csv(cv_out, index=False)
     print(f"✓ Saved CV1 results to {cv_out}")
 
     # --------------------------------------------------------------
-    # Step 4: Fit final model on all training data
+    # Step 5: Fit final model on all training data
     # --------------------------------------------------------------
     print("\n=== Fitting final model on all training data ===")
 
@@ -96,11 +132,10 @@ def main():
     )
 
     # --------------------------------------------------------------
-    # Step 5: Predict for challenge trials
+    # Step 6: Predict for challenge trials
     # --------------------------------------------------------------
     print("\n=== Predicting for challenge trials ===")
 
-    # env has no accession column → predict for all genotyped lines
     all_genotyped = geno["germplasmName"].unique().tolist()
 
     for trial in FOCAL_TRIALS:

@@ -1,91 +1,79 @@
 ###############################################
-# T3/Wheat Predictathon – Snakemake Pipeline
-# Option C: BrAPI for metadata, local genotypes
+# External raw data (your Desktop folder)
 ###############################################
 
-FOCAL_TRIALS = [
-    "AWY1_DVPWA_2024",
-    "TCAP_2025_MANKS",
-    "25_Big6_SVREC_SVREC",
-    "OHRWW_2025_SPO",
-    "CornellMaster_2025_McGowan",
-    "24Crk_AY2-3",
-    "2025_AYT_Aurora",
-    "YT_Urb_25",
-    "STP1_2025_MCG",
-]
-
-CV_TYPES = ["CV0", "CV00"]
-FILETYPES = ["accessions", "trials", "predictions"]
-
+RAW_PHENO = "/Users/emilybillow/Desktop/emilybillow_data/processed/preprocessed_final.csv"
+RAW_META  = "/Users/emilybillow/Desktop/emilybillow_data/raw/trial_metadata.csv"
+RAW_GENO_DIR = "/Users/emilybillow/Desktop/emilybillow_data/raw"
 
 ###############################################
-# Rule: all
+# Internal pipeline paths
 ###############################################
-rule all:
-    input:
-        expand(
-            "submission_output/{trial}/{cv}/{cv}{filetype}.csv",
-            trial=FOCAL_TRIALS,
-            cv=CV_TYPES,
-            filetype=FILETYPES
-        )
 
+PROCESSED_DIR = "data/processed"
+
+MERGED_GENO   = f"{PROCESSED_DIR}/geno_merged_raw.csv"
+PREPROCESSED  = f"{PROCESSED_DIR}/preprocessed.csv"
+PREPROCESSED_FINAL = f"{PROCESSED_DIR}/preprocessed_final.csv"
 
 ###############################################
-# Rule: fetch genotypes (local file, Option C)
+# Rule: merge_genotypes
+# Runs src/merge_vcfs.py and produces geno_merged_raw.csv
 ###############################################
-rule fetch_genotypes_local:
-    """
-    Load the local Predictathon genotype matrix and normalize accession names.
-    """
-    input:
-        "data/raw/genotypes.csv"
+
+rule merge_genotypes:
     output:
-        "data/raw/genotypes_from_local.csv"
+        MERGED_GENO
     shell:
-        "python src/fetch_t3_genotypes.py"
-
+        """
+        python src/merge_vcfs.py
+        """
 
 ###############################################
 # Rule: preprocess
+# Runs your new preprocess_data.py
+# Produces:
+#   - preprocessed.csv
+#   - preprocessed_final.csv
 ###############################################
-rule preprocess:
-    """
-    Merge phenotypes, metadata, and local genotype matrix.
-    """
-    input:
-        "data/raw/phenotypes.csv",
-        "data/raw/trial_metadata.csv",
-        "data/raw/genotypes_from_local.csv"
-    output:
-        "data/processed/pheno_clean.csv",
-        "data/processed/env_descriptors.csv",
-        "data/processed/geno_imputed.csv",
-        "data/processed/G_matrix.npz"
-    shell:
-        "python src/preprocess_data.py"
 
+rule preprocess:
+    input:
+        pheno = RAW_PHENO,
+        meta  = RAW_META,
+        geno  = MERGED_GENO
+    output:
+        PREPROCESSED,
+        PREPROCESSED_FINAL
+    shell:
+        """
+        python src/preprocess_data.py \
+            --pheno {input.pheno} \
+            --meta {input.meta} \
+            --geno {input.geno}
+        """
 
 ###############################################
 # Rule: modeling
+# Uses preprocessed_final.csv as phenotype input
 ###############################################
+
 rule modeling:
-    """
-    Train models and generate Predictathon submission files.
-    """
     input:
-        "data/processed/pheno_clean.csv",
-        "data/processed/env_descriptors.csv",
-        "data/processed/geno_imputed.csv",
-        "data/processed/G_matrix.npz",
-        "config.yaml"
+        pheno = PREPROCESSED_FINAL,
+        geno  = MERGED_GENO,
+        config = "config.yaml"
     output:
-        expand(
-            "submission_output/{trial}/{cv}/{cv}{filetype}.csv",
-            trial=FOCAL_TRIALS,
-            cv=CV_TYPES,
-            filetype=FILETYPES
-        )
+        directory("submission_output")
     shell:
-        "python src/main.py"
+        """
+        python src/main.py
+        """
+
+###############################################
+# Final target
+###############################################
+
+rule all:
+    input:
+        "submission_output"
