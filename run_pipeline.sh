@@ -19,21 +19,14 @@ if [[ "${1:-}" == "--clean" ]]; then
 fi
 
 # ---------------------------------------------------------
-# Step 1: Preprocessing
-# ---------------------------------------------------------
-echo "Running preprocessing..."
-snakemake preprocess -p -j1
-echo "--------------------------------------"
-
-# ---------------------------------------------------------
-# Step 2: Modeling
+# Step 1: Modeling
 # ---------------------------------------------------------
 echo "Running modeling..."
 snakemake modeling -p -j1
 echo "--------------------------------------"
 
 # ---------------------------------------------------------
-# Step 3: Build all submission files
+# Step 2: Build all submission files
 # ---------------------------------------------------------
 echo "Building final submission outputs..."
 snakemake all -p -j1

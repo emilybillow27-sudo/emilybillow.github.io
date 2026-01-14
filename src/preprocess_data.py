@@ -18,20 +18,29 @@ def stream_csv_with_progress(path, chunksize=50000, desc="Streaming CSV"):
 
 
 ############################################################
-# Placeholder processing functions (your originals stay here)
+# Processing functions (customize as needed)
 ############################################################
 def process_raw_chunk(chunk):
-    # Your existing cleaning logic stays here
+    """
+    First-pass cleaning.
+    Add your filtering, renaming, NA handling, etc. here.
+    """
     return chunk
 
 
 def fetch_trait_metadata():
-    # Your existing metadata logic stays here
+    """
+    Optional: load trait metadata if you use it.
+    Return an empty dict if not needed.
+    """
     return {}
 
 
 def harmonize_trait_names(chunk, trait_metadata):
-    # Your existing harmonization logic stays here
+    """
+    Second-pass harmonization.
+    Add trait renaming or mapping logic here.
+    """
     return chunk
 
 
@@ -39,13 +48,12 @@ def harmonize_trait_names(chunk, trait_metadata):
 # MAIN PIPELINE
 ############################################################
 def main():
-    parser = argparse.ArgumentParser(description="Preprocess phenotype + metadata + genotype files")
+    parser = argparse.ArgumentParser(description="Preprocess phenotype CSV into clean modeling-ready files")
     parser.add_argument("--pheno", required=True, help="Path to phenotype CSV")
-    parser.add_argument("--meta", required=True, help="Path to metadata CSV")
-    parser.add_argument("--geno", required=True, help="Path to merged genotype CSV")
+    parser.add_argument("--meta", required=False, help="(Optional) metadata CSV")
+    parser.add_argument("--geno", required=False, help="(Optional) genotype CSV")
     args = parser.parse_args()
 
-    # Use the phenotype file provided by Snakemake
     raw_path = args.pheno
 
     # Output locations
@@ -66,7 +74,7 @@ def main():
         )
         first = False
 
-    print(f"Finished streaming raw CSV. Output written to {processed_path}")
+    print(f"Finished streaming raw CSV → {processed_path}")
 
     print("\nFetching trait metadata...")
     trait_metadata = fetch_trait_metadata()
@@ -75,7 +83,7 @@ def main():
     print("\n=== PASS 2: Harmonizing processed phenotype CSV ===")
     first = True
 
-    for chunk in stream_csv_with_progress(processed_path, desc="Reloading processed CSV"):
+    for chunk in stream_csv_with_progress(processed_path, desc="Harmonizing CSV"):
         chunk = harmonize_trait_names(chunk, trait_metadata)
 
         chunk.to_csv(
@@ -87,7 +95,7 @@ def main():
         first = False
 
     print(f"\nFinal output written to {final_path}")
-    print("Pipeline completed successfully.")
+    print("Preprocessing pipeline completed successfully.")
 
 
 ############################################################
